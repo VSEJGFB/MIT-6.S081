@@ -271,6 +271,14 @@ intr_off()
   w_sstatus(r_sstatus() & ~SSTATUS_SIE);
 }
 
+static inline uint64
+r_fp()
+{
+    uint64 x;
+    asm volatile("mv %0, s0" : "=r" (x) );
+    return x;
+}
+
 // are device interrupts enabled?
 static inline int
 intr_get()

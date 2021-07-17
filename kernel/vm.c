@@ -47,12 +47,6 @@ kvminit()
   kvmmap(TRAMPOLINE, (uint64)trampoline, PGSIZE, PTE_R | PTE_X);
 }
 
-pagetable_t
-getkvminit()
-{
-    return kernel_pagetable;
-}
-
 // Switch h/w page table register to the kernel's page table,
 // and enable paging.
 void
@@ -125,14 +119,6 @@ kvmmap(uint64 va, uint64 pa, uint64 sz, int perm)
 {
   if(mappages(kernel_pagetable, va, sz, pa, perm) != 0)
     panic("kvmmap");
-}
-
-// userd for initialing user's kernel page table
-void
-ukvmmap(pagetable_t pagetable, uint64 va, uint64 pa, uint64 sz, int perm)
-{
-    if(mappages(pagetable, va, sz, pa, perm) != 0)
-        panic("ukvmmap");
 }
 
 // translate a kernel virtual address to
@@ -454,28 +440,3 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
     return -1;
   }
 }
-
-
-void dfspgtble(pagetable_t pagetable , int depth){
-    // there are 2^9 = 512 PTEs in a page table.
-    for(int i = 0; i < 512; i++){
-        pte_t pte = pagetable[i];
-        if((pte & PTE_V)) {
-            // this PTE points to a lower-level page table.
-            uint64 child = PTE2PA(pte);
-            printf("..");
-            for (int j = 0; j < depth - 1; j++)
-                printf(" ..");
-            printf("%d: pte %p pa %p\n", i, pte, child);
-            if(depth < 3) dfspgtble((pagetable_t) child,depth +1);
-        }
-    }
-}
-
-void
-vmprint(pagetable_t p)
-{
-    printf("page table %p\n",p);
-    dfspgtble(p,1);
-}
-

@@ -34,12 +34,12 @@ procinit(void)
       // Allocate a page for the process's kernel stack.
       // Map it high in memory, followed by an invalid
       // guard page.
-     /* char *pa = kalloc();
+      char *pa = kalloc();
       if(pa == 0)
         panic("kalloc");
       uint64 va = KSTACK((int) (p - proc));
       kvmmap(va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
-      p->kstack = va;*/
+      p->kstack = va;
   }
   kvminithart();
 }
@@ -89,7 +89,6 @@ allocpid() {
 // If found, initialize state required to run in the kernel,
 // and return with p->lock held.
 // If there are no free procs, or a memory allocation fails, return 0.
-void ukvmmap(pagetable_t, uint64, uint64, uint64, int);
 static struct proc*
 allocproc(void)
 {
@@ -113,6 +112,10 @@ found:
     release(&p->lock);
     return 0;
   }
+    if((p->ntrapframe = (struct trapframe *)kalloc()) == 0){
+        release(&p->lock);
+        return 0;
+    }
 
   // An empty user page table.
   p->pagetable = proc_pagetable(p);
@@ -122,24 +125,9 @@ found:
     return 0;
   }
 
-    // user kernel pagetable.
-    p->kpagetable = proc_kpagetable(p);
-    if (p->kpagetable == 0)
-    {
-        freeproc(p);
-        release(&p->lock);
-        return 0;
-    }
-
-    // Allocate a page for the process's kernel stack.
-    // Map it high in memory, followed by an invalid
-    // guard page.
-    char *pa = kalloc();
-    if(pa == 0)
-        panic("kalloc");
-    uint64 va = KSTACK((int) (p - proc));
-    ukvmmap(p->kpagetable, va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
-    p->kstack = va;
+  p->passedticks = 0;
+  p->handler = -1;
+  p->waiting = 0;
 
   // Set up new context to start executing at forkret,
   // which returns to user space.
@@ -159,6 +147,9 @@ freeproc(struct proc *p)
   if(p->trapframe)
     kfree((void*)p->trapframe);
   p->trapframe = 0;
+  if(p->ntrapframe)
+      kfree((void*)p->ntrapframe);
+  p->ntrapframe = 0;
   if(p->pagetable)
     proc_freepagetable(p->pagetable, p->sz);
   p->pagetable = 0;
@@ -203,27 +194,6 @@ proc_pagetable(struct proc *p)
   }
 
   return pagetable;
-}
-
-extern char etext[];
-pagetable_t
-proc_kpagetable(struct proc *p)
-{
-    pagetable_t kpagetable;
-
-    kpagetable = uvmcreate();
-    if (kpagetable == 0)
-        return 0;
-
-    // Fill in the process's kernel page table, the same as kernel_pagetable
-    ukvmmap(kpagetable, UART0, UART0, PGSIZE, PTE_R | PTE_W);
-    ukvmmap(kpagetable, VIRTIO0, VIRTIO0, PGSIZE, PTE_R | PTE_W);
-    ukvmmap(kpagetable, PLIC, PLIC, 0x400000, PTE_R | PTE_W);
-    ukvmmap(kpagetable, KERNBASE, KERNBASE, (uint64)etext-KERNBASE, PTE_R | PTE_X);
-    ukvmmap(kpagetable, (uint64)etext, (uint64)etext, PHYSTOP-(uint64)etext, PTE_R | PTE_W);
-    ukvmmap(kpagetable, TRAMPOLINE, (uint64)trampoline, PGSIZE, PTE_R | PTE_X);
-    ukvmmap(kpagetable, TRAPFRAME, (uint64)(p->trapframe), PGSIZE, PTE_R | PTE_W);
-    return kpagetable;
 }
 
 // Free a process's page table, and free the
@@ -514,10 +484,6 @@ scheduler(void)
         // before jumping back to us.
         p->state = RUNNING;
         c->proc = p;
-
-    /*    w_satp(MAKE_SATP(p->kpagetable));
-        sfence_vma();*/
-
         swtch(&c->context, &p->context);
 
         // Process is done running for now.
